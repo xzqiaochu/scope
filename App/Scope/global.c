@@ -41,6 +41,7 @@ const uint8_t scope_voltage_div_size = sizeof(scope_voltage_div) / sizeof(scope_
 /*-----------------------------------------------------采样-----------------------------------------------------*/
 
 Edge scope_tri_edge = Scope_Edge_Rise;
+uint8_t scope_tri_channel = 0;
 float scope_tri_voltage = 0;
 float scope_sample_rate; // 采样率
 Scope_Sample *scope_sample_arr[SCOPE_MAX_CACHE]; // 样本缓冲区

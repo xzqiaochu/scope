@@ -37,106 +37,113 @@ static void Clear_Flag() {
 static uint8_t Scope_Sample_Process_Sub(Scope_Sample *sample) {
     uint8_t rst;
 
-    // 计算最小值、最大值、平均值
-    uint16_t min = UINT16_MAX, max = 0;
-    float avg;
-    uint32_t sum = 0;
-    for (uint16_t i = 0; i < SCOPE_SAMPLE_NUM; i++) {
-        if (sample->data[i] > max) max = sample->data[i];
-        if (sample->data[i] < min) min = sample->data[i];
-        sum += sample->data[i];
-    }
-    avg = (float) sum / SCOPE_SAMPLE_NUM;
-    // 因输入反相，输入最大值为数据最小值
-    sample->vpp = toVoltage(min) - toVoltage(max);
-    sample->avg = toVoltage(avg);
-
-    // 找到所有的上升沿、下降沿
-    float tri_data = toData(scope_tri_voltage);
-    uint16_t edges[2][SCOPE_MAX_EDGE];
-    uint16_t edges_cnt[2] = {0};
-    for (uint16_t i = SCOPE_TRI_CHECK_NUM; i < (uint16_t) (SCOPE_SAMPLE_NUM - SCOPE_TRI_CHECK_NUM); i++) {
-        // 检测数据上升沿
-        uint8_t cnt = 0;
-        for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
-            if ((float) sample->data[i - j] < tri_data && (float) sample->data[i + j] > tri_data)
-                cnt++;
-            else
-                break;
+    for (uint8_t k = 0; k < SCOPE_CHANNEL_NUM; k++) {
+        // 计算最小值、最大值、平均值
+        uint16_t min = UINT16_MAX, max = 0;
+        float avg;
+        uint32_t sum = 0;
+        for (uint16_t i = 0; i < SCOPE_SAMPLE_NUM; i++) {
+            if (sample->data[i][k] > max) max = sample->data[i][k];
+            if (sample->data[i][k] < min) min = sample->data[i][k];
+            sum += sample->data[i][k];
         }
-        if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i] < tri_data) {
-            edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise]++] = i;
-            if (edges_cnt[Scope_Edge_Rise] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
-                edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                break;
+        avg = (float) sum / SCOPE_SAMPLE_NUM;
+        // 因输入反相，输入最大值为数据最小值
+        sample->vpp[k] = toVoltage(min) - toVoltage(max);
+        sample->avg[k] = toVoltage(avg);
+
+        // 找到所有的上升沿、下降沿
+        float tri_data = toData(scope_tri_voltage);
+        uint16_t edges[2][SCOPE_MAX_EDGE];
+        uint16_t edges_cnt[2] = {0};
+        for (uint16_t i = SCOPE_TRI_CHECK_NUM; i < (uint16_t) (SCOPE_SAMPLE_NUM - SCOPE_TRI_CHECK_NUM); i++) {
+            // 检测数据上升沿
+            uint8_t cnt = 0;
+            for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
+                if ((float) sample->data[i - j][k] < tri_data && (float) sample->data[i + j][k] > tri_data)
+                    cnt++;
+                else
+                    break;
+            }
+            if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] < tri_data) {
+                edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise]++] = i;
+                if (edges_cnt[Scope_Edge_Rise] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
+                    edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
+                    break;
+                }
+            }
+
+            // 检查数据下降沿
+            cnt = 0;
+            for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
+                if ((float) sample->data[i - j][k] > tri_data && (float) sample->data[i + j][k] < tri_data)
+                    cnt++;
+                else
+                    break;
+            }
+            if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] > tri_data) {
+                edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall]++] = i;
+                if (edges_cnt[Scope_Edge_Fall] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
+                    edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
+                    break;
+                }
             }
         }
 
-        // 检查数据下降沿
-        cnt = 0;
-        for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
-            if ((float) sample->data[i - j] > tri_data && (float) sample->data[i + j] < tri_data)
-                cnt++;
-            else
-                break;
+        // 计算周期
+        float cycle = 0.0f;
+        if (edges_cnt[Scope_Edge_Rise] > 1 && edges_cnt[Scope_Edge_Fall] > 1) {
+            float cycle1 =
+                    (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
+                    (float) (edges_cnt[Scope_Edge_Rise] - 1);
+            float cycle2 =
+                    (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
+                    (float) (edges_cnt[Scope_Edge_Fall] - 1);
+            cycle = (cycle1 + cycle2) / 2;
+        } else if (edges_cnt[Scope_Edge_Rise] > 1) {
+            float cycle1 =
+                    (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
+                    (float) (edges_cnt[Scope_Edge_Rise] - 1);
+            cycle = cycle1;
+        } else if (edges_cnt[Scope_Edge_Fall] > 1) {
+            float cycle2 =
+                    (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
+                    (float) (edges_cnt[Scope_Edge_Fall] - 1);
+            cycle = cycle2;
         }
-        if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i] > tri_data) {
-            edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall]++] = i;
-            if (edges_cnt[Scope_Edge_Fall] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
-                edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                break;
+        sample->freq[k] = toFreq(cycle);
+
+        // Channel1为触发通道
+        if (k == scope_tri_channel) {
+            // 选取最佳触发位置：最居中的触发位置
+            uint16_t min_diff = UINT16_MAX, min_diff_p = 0;
+            for (uint16_t i = 0; i < edges_cnt[!scope_tri_edge]; i++) { // 因输入反相，输入上升沿是数据下降沿
+                int diff = abs((int) edges[!scope_tri_edge][i] * 2 - SCOPE_SAMPLE_NUM);
+                if (diff < min_diff) {
+                    min_diff = diff;
+                    min_diff_p = edges[!scope_tri_edge][i];
+                }
             }
+            uint16_t tri_p = min_diff_p;
+
+            // 检查是否有足够的数据用于绘图
+            uint16_t max_len = Min(tri_p, SCOPE_SAMPLE_NUM - tri_p) * 2;
+            // 采样率 * 示波器横轴总时间 = 所需样本数
+            uint16_t need_len = (uint16_t) (
+                    scope_sample_rate / 1000.0f * (scope_ms_div[scope_ms_div_select] * SCOPE_X_GRID) + 0.5f);
+            if (max_len < need_len || min_diff_p == 0) { // min_diff_p == 0 说明边沿数为0（也有可能是因为超出上限而被置为0）
+                tri_p = need_len / 2;
+                rst = 0;
+            } else {
+                rst = 1;
+            }
+
+            // 标记有效绘图数据在原数组中的位置
+            sample->sp = tri_p - need_len / 2;
+            sample->len = need_len;
         }
-    }
 
-    // 计算周期
-    float cycle = 0.0f;
-    if (edges_cnt[Scope_Edge_Rise] > 1 && edges_cnt[Scope_Edge_Fall] > 1) {
-        float cycle1 =
-                (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
-                (float) (edges_cnt[Scope_Edge_Rise] - 1);
-        float cycle2 =
-                (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
-                (float) (edges_cnt[Scope_Edge_Fall] - 1);
-        cycle = (cycle1 + cycle2) / 2;
-    } else if (edges_cnt[Scope_Edge_Rise] > 1) {
-        float cycle1 =
-                (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
-                (float) (edges_cnt[Scope_Edge_Rise] - 1);
-        cycle = cycle1;
-    } else if (edges_cnt[Scope_Edge_Fall] > 1) {
-        float cycle2 =
-                (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
-                (float) (edges_cnt[Scope_Edge_Fall] - 1);
-        cycle = cycle2;
     }
-    sample->freq = toFreq(cycle);
-
-    // 选取最佳触发位置：最居中的触发位置
-    uint16_t min_diff = UINT16_MAX, min_diff_p = 0;
-    for (uint16_t i = 0; i < edges_cnt[!scope_tri_edge]; i++) { // 因输入反相，输入上升沿是数据下降沿
-        int diff = abs((int) edges[!scope_tri_edge][i] * 2 - SCOPE_SAMPLE_NUM);
-        if (diff < min_diff) {
-            min_diff = diff;
-            min_diff_p = edges[!scope_tri_edge][i];
-        }
-    }
-    uint16_t tri_p = min_diff_p;
-
-    // 检查是否有足够的数据用于绘图
-    uint16_t max_len = Min(tri_p, SCOPE_SAMPLE_NUM - tri_p) * 2;
-    // 采样率 * 示波器横轴总时间 = 所需样本数
-    uint16_t need_len = (uint16_t) (scope_sample_rate / 1000.0f * (scope_ms_div[scope_ms_div_select] * SCOPE_X_GRID) + 0.5f);
-    if (max_len < need_len || min_diff_p == 0) { // min_diff_p == 0 说明边沿数为0（也有可能是因为超出上限而被置为0）
-        tri_p = need_len / 2;
-        rst = 0;
-    } else {
-        rst = 1;
-    }
-
-    // 标记有效绘图数据在原数组中的位置
-    sample->sp = tri_p - need_len / 2;
-    sample->len = need_len;
 
     return rst;
 }
@@ -226,7 +233,7 @@ void Scope_Sample_Try_Start_New_ADC(void) {
             if (scope_sample_arr[i]->sample_flag == Scope_Sample_Not) {
                 dma_busy = 1;
                 scope_sample_arr[i]->sample_flag = Scope_Sample_Doing;
-                HAL_ADC_Start_DMA(&SCOPE_hadc, (uint32_t *) scope_sample_arr[i]->data, SCOPE_SAMPLE_NUM);
+                HAL_ADC_Start_DMA(&SCOPE_hadc, (uint32_t *) scope_sample_arr[i]->data, SCOPE_SAMPLE_NUM * SCOPE_CHANNEL_NUM);
                 HAL_TIM_Base_Start(&SCOPE_htim);
                 break;
             }

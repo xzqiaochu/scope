@@ -22,12 +22,12 @@ typedef enum {
 typedef struct {
     Sample_Flag sample_flag; // 采样标志
     uint8_t is_handle; // 处理完成标志
-    uint16_t data[SCOPE_SAMPLE_NUM]; // 待处理数据
+    uint16_t data[SCOPE_SAMPLE_NUM][2]; // 待处理数据
     uint16_t sp;
     uint16_t len;
-    float vpp; // 峰峰值
-    float avg; // 平均值
-    float freq; // 频率
+    float vpp[2]; // 峰峰值
+    float avg[2]; // 平均值
+    float freq[2]; // 频率
 } Scope_Sample;
 
 /*-----------------------------------------------------UI界面-----------------------------------------------------*/
@@ -48,6 +48,7 @@ extern const uint8_t scope_voltage_div_size;
 /*-----------------------------------------------------采样-----------------------------------------------------*/
 
 extern Edge scope_tri_edge;
+extern uint8_t scope_tri_channel;
 extern float scope_tri_voltage;
 extern float scope_sample_rate; // 采样率
 extern Scope_Sample *scope_sample_arr[SCOPE_MAX_CACHE]; // 样本缓冲区

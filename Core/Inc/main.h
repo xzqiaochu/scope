@@ -67,8 +67,10 @@ void Error_Handler(void);
 #define KEY_2_Pin GPIO_PIN_5
 #define KEY_2_GPIO_Port GPIOA
 #define KEY_2_EXTI_IRQn EXTI4_15_IRQn
-#define Bias_Pin GPIO_PIN_6
-#define Bias_GPIO_Port GPIOA
+#define Bias1_Pin GPIO_PIN_6
+#define Bias1_GPIO_Port GPIOA
+#define Bias2_Pin GPIO_PIN_1
+#define Bias2_GPIO_Port GPIOB
 #define ENCODER_A_Pin GPIO_PIN_15
 #define ENCODER_A_GPIO_Port GPIOA
 #define ENCODER_A_EXTI_IRQn EXTI4_15_IRQn

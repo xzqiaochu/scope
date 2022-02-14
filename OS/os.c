@@ -17,7 +17,8 @@ static void ShowLogo(void) {
 
 void OS_Init(void) {
     HAL_ADCEx_Calibration_Start(&hadc1); // 校准ADC
-    HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1); // Bias = 1.1V
+    HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1); // Bias1 = 1.1V
+    HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1); // Bias2 = 1.1V
 
     OLED_Init();
     Key_Init();
