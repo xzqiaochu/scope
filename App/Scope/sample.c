@@ -33,7 +33,10 @@ static void Clear_Flag() {
 
 // 处理采样数据
 // 计算：最大值、最小值、平均值、周期、绘图数据
-static void Scope_Sample_Process_Sub(Scope_Sample *sample) {
+// 返回值：表示是否触发且数据量充足
+static uint8_t Scope_Sample_Process_Sub(Scope_Sample *sample) {
+    uint8_t rst;
+
     // 计算最小值、最大值、平均值
     uint16_t min = UINT16_MAX, max = 0;
     float avg;
@@ -65,7 +68,7 @@ static void Scope_Sample_Process_Sub(Scope_Sample *sample) {
             edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise]++] = i;
             if (edges_cnt[Scope_Edge_Rise] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
                 edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                return;
+                break;
             }
         }
 
@@ -81,7 +84,7 @@ static void Scope_Sample_Process_Sub(Scope_Sample *sample) {
             edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall]++] = i;
             if (edges_cnt[Scope_Edge_Fall] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
                 edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                return;
+                break;
             }
         }
     }
@@ -120,15 +123,22 @@ static void Scope_Sample_Process_Sub(Scope_Sample *sample) {
     }
     uint16_t tri_p = min_diff_p;
 
+    // 检查是否有足够的数据用于绘图
     uint16_t max_len = Min(tri_p, SCOPE_SAMPLE_NUM - tri_p) * 2;
     // 采样率 * 示波器横轴总时间 = 所需样本数
     uint16_t need_len = (uint16_t) (scope_sample_rate / 1000.0f * (scope_ms_div[scope_ms_div_select] * SCOPE_X_GRID) + 0.5f);
-    if (max_len < need_len || min_diff_p == 0) // min_diff_p == 0 说明边沿数为0（也有可能是因为超出上限而被置为0）
+    if (max_len < need_len || min_diff_p == 0) { // min_diff_p == 0 说明边沿数为0（也有可能是因为超出上限而被置为0）
         tri_p = need_len / 2;
+        rst = 0;
+    } else {
+        rst = 1;
+    }
 
     // 标记有效绘图数据在原数组中的位置
     sample->sp = tri_p - need_len / 2;
     sample->len = need_len;
+
+    return rst;
 }
 
 /*-----------------------------------------------------接口函数-----------------------------------------------------*/
@@ -178,12 +188,23 @@ void Scope_Sample_Refresh_Sample_Rate(void) {
 }
 
 void Scope_Sample_Try_Process(void) {
+    static uint32_t last_success_t = 0;
+
     for (uint8_t i = 0; i < SCOPE_MAX_CACHE; i++) {
         if (scope_sample_arr[i] == NULL)
             break;
         if (scope_sample_arr[i]->sample_flag == Scope_Sample_Finished && scope_sample_arr[i]->is_handle == 0) {
-            Scope_Sample_Process_Sub(scope_sample_arr[i]);
-            scope_sample_arr[i]->is_handle = 1;
+            if (Scope_Sample_Process_Sub(scope_sample_arr[i])) {
+                last_success_t = HAL_GetTick();
+                scope_sample_arr[i]->is_handle = 1;
+            } else {
+                if (HAL_GetTick() - last_success_t <= SCOPE_MAX_FAIL_T) { // 偶尔几次采样不符合要求，就跳过
+                    scope_sample_arr[i]->sample_flag = Scope_Sample_Not;
+                    Scope_Sample_Try_Start_New_ADC();
+                } else { // 连续多次采样不符合要求，进入滚动模式
+                    scope_sample_arr[i]->is_handle = 1;
+                }
+            }
         }
     }
 }
