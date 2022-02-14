@@ -3,7 +3,7 @@
 
 #include "os.h"
 
-#define BUZZER_HTIM htim14
+#define BUZZER_HTIM htim1
 
 void Buzzer_Play(float freq, uint8_t t);
 void Buzzer_Beep(uint8_t kind);

@@ -24,8 +24,9 @@
 #define SCOPE_htim htim3 // TIM驱动ADC采样
 #define SCOPE_hadc hadc1
 
-#define SCOPE_MAX_SAMPLE_RATE 2000000 // 最大采样率 = 2MSa/s
-#define SCOPE_SAMPLE_NUM (SCOPE_X_NUM * 2) // 单次采样的样本数目，必须为偶数，不然会崩
+#define SCOPE_MAX_SAMPLE_RATE 1000000 // 最大采样率 = 1MSa/s
+#define SCOPE_CHANNEL_NUM 2 // 通道数目
+#define SCOPE_SAMPLE_NUM (SCOPE_X_NUM * 2) // 每个通道单次采样的样本数目，必须为偶数，不然会崩
 #define SCOPE_SAMPLE_K 2 // sample_num = k * 绘图所需样本数
 
 #define SCOPE_MAX_CACHE 1 // 内存中最大缓存的采样数量，实际小于等于此值，取决于堆空间大小
