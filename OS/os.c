@@ -11,7 +11,7 @@ uint8_t app_p = 0;
 static void ShowLogo(void) {
     OLED_Clear();
     OLED_ShowString(12, 49, "Code by WonderBoy", 12, 1);
-    OLED_ShowString(45, 73, "V1.0.1", 8, 1);
+    OLED_ShowString(45, 73, "V2.1.4", 8, 1);
     OLED_Refresh();
 }
 
