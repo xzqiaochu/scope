@@ -24,39 +24,76 @@ static void Clear_Flag() {
 // 处理采样数据：FFT
 // 计算：最大峰频率、绘图数据
 static void Spectrum_Sample_Handle_Sub(Spectrum_Sample *sample) {
-    for (int16_t i = SPECTRUM_SAMPLE_NUM - 1; i >= 0; i--) { // 倒序循环，不可以用unsigned，否则0-1=MAX，永远无法退出循环
-        sample->data.fft[i * 2] = toVoltage((float) sample->data.raw[i]); // 使用转真实电压进行FFT
-        sample->data.fft[i * 2 + 1] = 0; // 虚部 = 0
+    uint16_t *p16 = (uint16_t *) sample->data;
+    uint64_t *p64 = (uint64_t *) sample->data;
+
+    // uint16_t转uint64_t
+    for (int16_t i = SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM - 1;
+         i >= 0; i--) { // 倒序循环，不可以用unsigned，否则0-1=MAX，永远无法退出循环
+        float *tmp_p = (float *) &p64[i];
+        tmp_p[0] = toVoltage((float) p16[i]); // 实部放在前32位
+        tmp_p[1] = 1; // 虚部为0；这里标为1，是为下一步行列转换做准备
     }
 
-    arm_cfft_f32(&arm_cfft_sR_f32_len, sample->data.fft, 0, 1);
-    arm_cmplx_mag_f32(sample->data.fft, sample->data.fft, SPECTRUM_SAMPLE_NUM); // magnitude为模长；sample->data.fft前一半为正模长，后一半为负模长
-
-    // 计算最大峰
-    float FFT_max;
-    uint32_t FFT_max_index;
-    float freq = 0;
-    arm_max_f32(sample->data.fft + 1, SPECTRUM_SAMPLE_NUM / 2 - 1, &FFT_max, &FFT_max_index); // 只考虑正模长
-    FFT_max_index++; // 过滤掉直流分量
-    if (FFT_max_index >= 2) {
-        float sum = sample->data.fft[FFT_max_index - 2] +
-                    sample->data.fft[FFT_max_index - 1] +
-                    sample->data.fft[FFT_max_index] +
-                    sample->data.fft[FFT_max_index + 1] +
-                    sample->data.fft[FFT_max_index + 2];
-        freq = (((float) (FFT_max_index - 2) * sample->data.fft[FFT_max_index - 2]) +
-                ((float) (FFT_max_index - 1) * sample->data.fft[FFT_max_index - 1]) +
-                ((float) (FFT_max_index) * sample->data.fft[FFT_max_index]) +
-                ((float) (FFT_max_index + 2) * sample->data.fft[FFT_max_index + 2]) +
-                ((float) (FFT_max_index + 1) * sample->data.fft[FFT_max_index + 1])) / sum;
-        freq *= (spectrum_KHz_max[spectrum_KHz_max_select] * (1000.0f / (SPECTRUM_SAMPLE_NUM / 2.0f))); // 比例算法
+    // 行列转置
+#define REAL(x) (*((float *) &p64[x]))
+#define IMAGE(x) (*((float *) &p64[x] + 1))
+#define NEXT(x) ((p % SPECTRUM_CHANNEL_NUM) * SPECTRUM_SAMPLE_NUM + (p / SPECTRUM_CHANNEL_NUM))
+    for (uint16_t i = 0; i < (uint16_t) (SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM); i++) {
+        if (IMAGE(i) == 0)
+            continue;
+        uint16_t first_p = i;
+        uint16_t p = i;
+        float val = REAL(i);
+        IMAGE(i) = 0;
+        while (1) {
+            p = NEXT(p);
+            if (p == first_p) {
+                REAL(p) = val;
+                break;
+            }
+            float tmp = REAL(p);
+            REAL(p) = val;
+            val = tmp;
+            IMAGE(p) = 0;
+        }
     }
-    sample->freq = freq; // 最大峰频率
-    sample->max = sample->data.fft[FFT_max_index] / (SPECTRUM_SAMPLE_NUM / 2.0f); // 最大峰电压
+#undef REAL
+#undef IMAGE
+#undef NEXT
 
-    // 计算直流分量
-    sample->data.fft[0] /= 2; // 除直流分量外，其他分量被镜像了一份；所以从数值上看，应该把直流分量/2
-    sample->bias = sample->data.fft[0] / (SPECTRUM_SAMPLE_NUM / 2.0f);
+    for (uint8_t k = 0; k < SPECTRUM_CHANNEL_NUM; k++) {
+        float *fft = sample->data[k];
+
+        arm_cfft_f32(&arm_cfft_sR_f32_len, fft, 0, 1);
+        arm_cmplx_mag_f32(fft, fft, SPECTRUM_SAMPLE_NUM); // magnitude为模长；fft前一半为正模长，后一半为负模长
+
+        // 计算最大峰
+        float FFT_max;
+        uint32_t FFT_max_index;
+        float freq = 0;
+        arm_max_f32(fft + 1, SPECTRUM_SAMPLE_NUM / 2 - 1, &FFT_max, &FFT_max_index); // 只考虑正模长
+        FFT_max_index++; // 过滤掉直流分量
+        if (FFT_max_index >= 2) {
+            float sum = fft[FFT_max_index - 2] +
+                        fft[FFT_max_index - 1] +
+                        fft[FFT_max_index] +
+                        fft[FFT_max_index + 1] +
+                        fft[FFT_max_index + 2];
+            freq = (((float) (FFT_max_index - 2) * fft[FFT_max_index - 2]) +
+                    ((float) (FFT_max_index - 1) * fft[FFT_max_index - 1]) +
+                    ((float) (FFT_max_index) * fft[FFT_max_index]) +
+                    ((float) (FFT_max_index + 2) * fft[FFT_max_index + 2]) +
+                    ((float) (FFT_max_index + 1) * fft[FFT_max_index + 1])) / sum;
+            freq *= (spectrum_KHz_max[spectrum_KHz_max_select] * (1000.0f / (SPECTRUM_SAMPLE_NUM / 2.0f))); // 比例算法
+        }
+        sample->freq[k] = freq; // 最大峰频率
+        sample->max[k] = fft[FFT_max_index] / (SPECTRUM_SAMPLE_NUM / 2.0f); // 最大峰电压
+
+        // 计算直流分量
+        fft[0] /= 2; // 除直流分量外，其他分量被镜像了一份；所以从数值上看，应该把直流分量/2
+        sample->bias[k] = fft[0] / (SPECTRUM_SAMPLE_NUM / 2.0f);
+    }
 }
 
 /*-----------------------------------------------------接口函数-----------------------------------------------------*/
@@ -124,7 +161,8 @@ void Spectrum_Sample_Try_Start_New_ADC(void) {
             if (spectrum_sample_arr[i]->sample_flag == Spectrum_Sample_Not) {
                 dma_busy = 1;
                 spectrum_sample_arr[i]->sample_flag = Spectrum_Sample_Doing;
-                HAL_ADC_Start_DMA(&SPECTRUM_hadc, (uint32_t *) spectrum_sample_arr[i]->data.raw, SPECTRUM_SAMPLE_NUM);
+                HAL_ADC_Start_DMA(&SPECTRUM_hadc, (uint32_t *) spectrum_sample_arr[i]->data,
+                                  SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM);
                 HAL_TIM_Base_Start(&SPECTRUM_htim);
                 break;
             }

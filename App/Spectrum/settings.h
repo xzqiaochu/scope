@@ -24,6 +24,7 @@
 #define SPECTRUM_htim htim3 // TIM驱动ADC采样
 #define SPECTRUM_hadc hadc1
 
+#define SPECTRUM_CHANNEL_NUM 2 // 通道数目
 #define SPECTRUM_SAMPLE_NUM 128 // 单次采样的样本数目，受限于DSP库的FFT函数，只能取一些特定的值
 #define arm_cfft_sR_f32_len arm_cfft_sR_f32_len128
 

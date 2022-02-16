@@ -14,18 +14,13 @@ typedef enum {
     Spectrum_Sample_Finished
 } Spectrum_Sample_Flag;
 
-typedef union {
-    uint16_t raw[SPECTRUM_SAMPLE_NUM];
-    float fft[SPECTRUM_SAMPLE_NUM * 2]; // FFT输入的数据为复数，所以数组长度翻倍
-} Data;
-
 typedef struct {
     Spectrum_Sample_Flag sample_flag; // 采样标志
     uint8_t is_handle; // 处理完成标志
-    Data data;
-    float freq; // 最大峰频率
-    float max; // 最大峰电压
-    float bias; // 直流偏置电压
+    float data[SPECTRUM_CHANNEL_NUM][SPECTRUM_SAMPLE_NUM * 2]; // FFT输入的数据为复数，所以数组长度翻倍
+    float freq[SPECTRUM_CHANNEL_NUM]; // 最大峰频率
+    float max[SPECTRUM_CHANNEL_NUM]; // 最大峰电压
+    float bias[SPECTRUM_CHANNEL_NUM]; // 直流偏置电压
 } Spectrum_Sample;
 
 /*-----------------------------------------------------UI界面-----------------------------------------------------*/
