@@ -42,7 +42,7 @@ static void Handle_KEY_L(void) {
         return;
 
     switch (scope_key_l_r_func) {
-        case 0:
+        case 0: // 时间轴
             if (scope_ms_div_select >= 1) {
                 scope_ms_div_select--;
                 Scope_Sample_Refresh_Sample_Rate();
@@ -53,7 +53,21 @@ static void Handle_KEY_L(void) {
             }
             break;
 
-        case 1:
+        case 1: // 触发通道
+            if (scope_tri_channel >= 1) {
+                scope_tri_channel--;
+                Buzzer_Beep(0);
+            }
+            break;
+
+        case 2: // 触发边沿
+            if (scope_tri_edge == Scope_Edge_Rise) {
+                scope_tri_edge = Scope_Edge_Fall;
+                Buzzer_Beep(0);
+            }
+            break;
+
+        case 3: // 电压轴
             if (scope_voltage_div_select >= 1) {
                 scope_voltage_div_select--;
                 Scope_UI_Try_Refresh(1);
@@ -63,7 +77,7 @@ static void Handle_KEY_L(void) {
             }
             break;
 
-        case 2:
+        case 4: // 触发电平
             if (scope_tri_voltage - Get_Step_Voltage() > -Get_Max_Voltage()) {
                 scope_tri_voltage -= Get_Step_Voltage();
                 Opt_Tri_Voltage();
@@ -87,28 +101,42 @@ static void Handle_KEY_R() {
         return;
 
     switch (scope_key_l_r_func) {
-        case 0:
+        case 0: // 时间轴
             if (scope_ms_div_select <= scope_ms_div_size - 2) {
                 scope_ms_div_select++;
                 Scope_Sample_Refresh_Sample_Rate();
                 Scope_UI_Try_Refresh(1);
-                Buzzer_Play(2300, 20);
+                Buzzer_Beep(0);
             } else {
-                Buzzer_Play(4600, 100);
+                Buzzer_Beep(1);
             }
             break;
 
-        case 1:
+        case 1: // 触发通道
+            if (scope_tri_channel <= SCOPE_CHANNEL_NUM - 2) {
+                scope_tri_channel++;
+                Buzzer_Beep(0);
+            }
+            break;
+
+        case 2: // 触发边沿
+            if (scope_tri_edge == Scope_Edge_Fall) {
+                scope_tri_edge = Scope_Edge_Rise;
+                Buzzer_Beep(0);
+            }
+            break;
+
+        case 3: // 电压轴
             if (scope_voltage_div_select <= scope_voltage_div_size - 2) {
                 scope_voltage_div_select++;
                 Scope_UI_Try_Refresh(1);
-                Buzzer_Play(2300, 20);
+                Buzzer_Beep(0);
             } else {
-                Buzzer_Play(4600, 100);
+                Buzzer_Beep(1);
             }
             break;
 
-        case 2:
+        case 4: // 触发电平
             if (scope_tri_voltage + Get_Step_Voltage() < Get_Max_Voltage()) {
                 scope_tri_voltage += Get_Step_Voltage();
                 Opt_Tri_Voltage();
@@ -152,7 +180,7 @@ void Scope_Operate_Try_Process(void) {
 
             case Key_OK:
                 if (!scope_hold) {
-                    scope_key_l_r_func = (scope_key_l_r_func + 1) % 3;
+                    scope_key_l_r_func = (scope_key_l_r_func + 1) % 5;
                     Buzzer_Beep(1);
                 }
                 break;

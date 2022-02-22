@@ -57,31 +57,25 @@ static void Show_Framework() {
 
     OLED_ShowString(48, 0, "Scope", 8, 1);
 
-    // 显示刻度选择、触发电平
-    uint8_t len;
-    switch (scope_key_l_r_func) {
-        case 0:
-            OLED_ShowString(0, 0, scope_ms_div_label[scope_ms_div_select], 8, 0);
-            len = strlen(scope_voltage_div_label[scope_voltage_div_select]);
-            OLED_ShowString(127 - len * 6, 0, scope_voltage_div_label[scope_voltage_div_select], 8, 1);
-            break;
+    // 0：时间轴
+    OLED_ShowString(0, 0, scope_ms_div_label[scope_ms_div_select], 8, scope_key_l_r_func != 0);
 
-        case 1:
-            OLED_ShowString(0, 0, scope_ms_div_label[scope_ms_div_select], 8, 1);
-            len = strlen(scope_voltage_div_label[scope_voltage_div_select]);
-            OLED_ShowString(127 - len * 6, 0, scope_voltage_div_label[scope_voltage_div_select], 8, 0);
-            break;
+    // 1：触发通道
+    char str_buf[10]; // 字符串缓冲区
+    floatToStr(str_buf, (float) (scope_tri_channel + 1), 0);
+    OLED_ShowString(36, 0, str_buf, 8, scope_key_l_r_func != 1);
 
-        case 2:
-            OLED_ShowString(0, 0, scope_ms_div_label[scope_ms_div_select], 8, 1);
-            len = strlen(scope_voltage_div_label[scope_voltage_div_select]);
-            OLED_ShowString(127 - len * 6, 0, scope_voltage_div_label[scope_voltage_div_select], 8, 1);
-            uint16_t val = Voltage_To_Coordinate(scope_tri_voltage);
-            OLED_DrawLine(SCOPE_X_MIN, val, SCOPE_X_MAX, val, 1);
-            break;
+    // 2：触发边沿
+    OLED_ShowString(84, 0, scope_tri_edge == Scope_Edge_Rise ? "Rise" : "Fall", 8, scope_key_l_r_func != 2);
 
-        default:
-            break;
+    // 3：电压轴
+    uint8_t len = strlen(scope_voltage_div_label[scope_voltage_div_select]);
+    OLED_ShowString(127 - len * 6, 0, scope_voltage_div_label[scope_voltage_div_select], 8, scope_key_l_r_func != 3);
+
+    // 4：触发电平
+    if (scope_key_l_r_func == 4) {
+        uint16_t val = Voltage_To_Coordinate(scope_tri_voltage);
+        OLED_DrawLine(SCOPE_X_MIN, val, SCOPE_X_MAX, val, 1);
     }
 
 }
