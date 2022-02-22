@@ -26,6 +26,7 @@ void Buzzeer_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         if (HAL_GetTick() < t) {
             HAL_GPIO_TogglePin(BUZZER_GPIO_Port, BUZZER_Pin);
         } else {
+            HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin, 0);
             HAL_TIM_Base_Stop_IT(&BUZZER_HTIM);
         }
     }
