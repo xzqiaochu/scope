@@ -216,21 +216,19 @@ void Scope_Sample_Try_Process(void) {
     }
 }
 
-// 在以下几个位置被调用：
-// DMA全传输完成中断
-// UI绘图消耗掉一组数据
-// 重新设置采样率
+// 尝试开启一次DMA传输
+// 调用位置：DMA全传输完成中断、UI绘图消耗掉一组数据、重新设置采样率
 void Scope_Sample_Try_Start_New_ADC(void) {
-    static uint8_t busy;
+    static uint8_t busy; // 该函数可能被主函数、中断同时调用，设置标注变量，防止同时调用执行
     if (busy == 1)
         return;
     busy = 1;
 
-    if (!dma_busy) {
+    if (!dma_busy) { // 检查DMA是否正在工作
         for (uint8_t i = 0; i < SCOPE_MAX_CACHE; i++) {
             if (scope_sample_arr[i] == NULL)
                 break;
-            if (scope_sample_arr[i]->sample_flag == Scope_Sample_Not) {
+            if (scope_sample_arr[i]->sample_flag == Scope_Sample_Not) { // 找到一个未采样(Not)的采样缓冲区
                 dma_busy = 1;
                 scope_sample_arr[i]->sample_flag = Scope_Sample_Doing;
                 HAL_ADC_Start_DMA(&SCOPE_hadc, (uint32_t *) scope_sample_arr[i]->data, SCOPE_SAMPLE_NUM * SCOPE_CHANNEL_NUM);
@@ -245,6 +243,7 @@ void Scope_Sample_Try_Start_New_ADC(void) {
 
 /*-----------------------------------------------------回调函数-----------------------------------------------------*/
 
+// DMA全传输完成中断回调函数
 void Scope_Sample_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
     UNUSED(hadc);
     HAL_TIM_Base_Stop(&SCOPE_htim);
