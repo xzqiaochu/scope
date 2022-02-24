@@ -189,258 +189,116 @@ end
 
 1. **ADC+DMA采样**
 
-   使用STM32CubeMX配置ADC的触发源为TIM的TRGO事件，并开启DMA。
+   使用STM32CubeMX配置ADC的触发源为TIM的TRGO事件，并开启DMA。详细步骤如下：
+
+   首先选择一个TIM作为触发源，在TIM里配置TRGO为Update Event（更新事件）。
+
+   ![image-20220224145219182](README.assets/image-20220224145219182.png)
+
+   然后在ADC中选择触发源为刚才TIM的TRGO事件。
+
+   ![image-20220224145439815](README.assets/image-20220224145439815.png)
+
+   开启ADC的DMA模式。
+
+   ![image-20220224151512641](README.assets/image-20220224151512641.png)
+
+   程序中使用以下两个函数开启ADC+DMA采样：
+
+   ```c
+   HAL_ADC_Start_DMA();
+   HAL_TIM_Base_Start();
+   ```
 
    程序对采样数据进行乒乓缓存，每个样本缓冲区有3种状态：未采样(Not)，正在采样(Doing)，完成采样(Finished)。
 
-   核心函数如下：（位置：APP/Scope/sample.c）
-
-   ```c
-   // 尝试开启一次DMA传输
-   // 调用位置：DMA全传输完成中断、UI绘图消耗掉一组数据、重新设置采样率
-   void Scope_Sample_Try_Start_New_ADC(void) {
-       static uint8_t busy; // 该函数可能被主函数、中断同时调用，设置标注变量，防止同时调用执行
-       if (busy == 1)
-           return;
-       busy = 1;
-   
-       if (!dma_busy) { // 检查DMA是否正在工作
-           for (uint8_t i = 0; i < SCOPE_MAX_CACHE; i++) {
-               if (scope_sample_arr[i] == NULL)
-                   break;
-               if (scope_sample_arr[i]->sample_flag == Scope_Sample_Not) { // 找到一个未采样(Not)的采样缓冲区
-                   dma_busy = 1;
-                   scope_sample_arr[i]->sample_flag = Scope_Sample_Doing;
-                   HAL_ADC_Start_DMA(&SCOPE_hadc, (uint32_t *) scope_sample_arr[i]->data, SCOPE_SAMPLE_NUM * SCOPE_CHANNEL_NUM);
-                   HAL_TIM_Base_Start(&SCOPE_htim);
-                   break;
-               }
-           }
-       }
-   
-       busy = 0;
-   }
-   
-   // DMA全传输完成中断回调函数
-   void Scope_Sample_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
-       UNUSED(hadc);
-       HAL_TIM_Base_Stop(&SCOPE_htim);
-       HAL_ADC_Stop_DMA(&SCOPE_hadc);
-       dma_busy = 0;
-       for (uint8_t i = 0; i < SCOPE_MAX_CACHE; i++) {
-           if (scope_sample_arr[i]->sample_flag == Scope_Sample_Doing) {
-               scope_sample_arr[i]->sample_flag = Scope_Sample_Finished;
-               break;
-           }
-       }
-       Scope_Sample_Try_Start_New_ADC();
-   }
-   ```
+   DMA会在有未采样(Not)缓冲区的情况下启动，尽快缓存更多的样本。
 
 2. **采样数据处理**
 
    示波器数据处理：遍历样本缓冲区，计算最大值、最小值、平均值；找到所有的边沿，计算周期/频率；把最靠中间的上升沿（下降沿）作为0时刻。
 
-   核心函数如下：（位置：APP/Scope/sample.c）
+   查找触发边沿的相关代码：（位置：APP/Scope/sample.c  Scope_Sample_Process_Sub()）
 
    ```c
-   // 处理采样数据
-   // 计算：最大值、最小值、平均值、周期、绘图数据
-   // 返回值：表示是否触发且数据量充足
-   static uint8_t Scope_Sample_Process_Sub(Scope_Sample *sample) {
-       uint8_t rst;
-   
-       for (uint8_t k = 0; k < SCOPE_CHANNEL_NUM; k++) {
-           // 计算最小值、最大值、平均值
-           uint16_t min = UINT16_MAX, max = 0;
-           float avg;
-           uint32_t sum = 0;
-           for (uint16_t i = 0; i < SCOPE_SAMPLE_NUM; i++) {
-               if (sample->data[i][k] > max) max = sample->data[i][k];
-               if (sample->data[i][k] < min) min = sample->data[i][k];
-               sum += sample->data[i][k];
-           }
-           avg = (float) sum / SCOPE_SAMPLE_NUM;
-           // 因输入反相，输入最大值为数据最小值
-           sample->vpp[k] = toVoltage(min) - toVoltage(max);
-           sample->avg[k] = toVoltage(avg);
-   
-           // 找到所有的上升沿、下降沿
-           float tri_data = toData(scope_tri_voltage);
-           uint16_t edges[2][SCOPE_MAX_EDGE];
-           uint16_t edges_cnt[2] = {0};
-           for (uint16_t i = SCOPE_TRI_CHECK_NUM; i < (uint16_t) (SCOPE_SAMPLE_NUM - SCOPE_TRI_CHECK_NUM); i++) {
-               // 检测数据上升沿
-               uint8_t cnt = 0;
-               for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
-                   if ((float) sample->data[i - j][k] < tri_data && (float) sample->data[i + j][k] > tri_data)
-                       cnt++;
-                   else
-                       break;
-               }
-               if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] < tri_data) {
-                   edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise]++] = i;
-                   if (edges_cnt[Scope_Edge_Rise] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
-                       edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                       break;
-                   }
-               }
-   
-               // 检查数据下降沿
-               cnt = 0;
-               for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
-                   if ((float) sample->data[i - j][k] > tri_data && (float) sample->data[i + j][k] < tri_data)
-                       cnt++;
-                   else
-                       break;
-               }
-               if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] > tri_data) {
-                   edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall]++] = i;
-                   if (edges_cnt[Scope_Edge_Fall] >= SCOPE_MAX_EDGE) { // 边沿数超出上限
-                       edges_cnt[Scope_Edge_Rise] = edges_cnt[Scope_Edge_Fall] = 0;
-                       break;
-                   }
-               }
-           }
-   
-           // 计算周期
-           float cycle = 0.0f;
-           if (edges_cnt[Scope_Edge_Rise] > 1 && edges_cnt[Scope_Edge_Fall] > 1) {
-               float cycle1 =
-                       (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
-                       (float) (edges_cnt[Scope_Edge_Rise] - 1);
-               float cycle2 =
-                       (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
-                       (float) (edges_cnt[Scope_Edge_Fall] - 1);
-               cycle = (cycle1 + cycle2) / 2;
-           } else if (edges_cnt[Scope_Edge_Rise] > 1) {
-               float cycle1 =
-                       (float) (edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise] - 1] - edges[Scope_Edge_Rise][0]) /
-                       (float) (edges_cnt[Scope_Edge_Rise] - 1);
-               cycle = cycle1;
-           } else if (edges_cnt[Scope_Edge_Fall] > 1) {
-               float cycle2 =
-                       (float) (edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall] - 1] - edges[Scope_Edge_Fall][0]) /
-                       (float) (edges_cnt[Scope_Edge_Fall] - 1);
-               cycle = cycle2;
-           }
-           sample->freq[k] = toFreq(cycle);
-   
-           // Channel1为触发通道
-           if (k == scope_tri_channel) {
-               // 选取最佳触发位置：最居中的触发位置
-               uint16_t min_diff = UINT16_MAX, min_diff_p = 0;
-               for (uint16_t i = 0; i < edges_cnt[!scope_tri_edge]; i++) { // 因输入反相，输入上升沿是数据下降沿
-                   int diff = abs((int) edges[!scope_tri_edge][i] * 2 - SCOPE_SAMPLE_NUM);
-                   if (diff < min_diff) {
-                       min_diff = diff;
-                       min_diff_p = edges[!scope_tri_edge][i];
-                   }
-               }
-               uint16_t tri_p = min_diff_p;
-   
-               // 检查是否有足够的数据用于绘图
-               uint16_t max_len = Min(tri_p, SCOPE_SAMPLE_NUM - tri_p) * 2;
-               // 采样率 * 示波器横轴总时间 = 所需样本数
-               uint16_t need_len = (uint16_t) (
-                       scope_sample_rate / 1000.0f * (scope_ms_div[scope_ms_div_select] * SCOPE_X_GRID) + 0.5f);
-               if (max_len < need_len || min_diff_p == 0) { // min_diff_p == 0 说明边沿数为0（也有可能是因为超出上限而被置为0）
-                   tri_p = need_len / 2;
-                   rst = 0;
-               } else {
-                   rst = 1;
-               }
-   
-               // 标记有效绘图数据在原数组中的位置
-               sample->sp = tri_p - need_len / 2;
-               sample->len = need_len;
-           }
-   
+   float tri_data = toData(scope_tri_voltage);
+   uint16_t edges[2][SCOPE_MAX_EDGE];
+   uint16_t edges_cnt[2] = {0};
+   for (uint16_t i = SCOPE_TRI_CHECK_NUM; i < (uint16_t) (SCOPE_SAMPLE_NUM - SCOPE_TRI_CHECK_NUM); i++) {
+       // 检测数据上升沿
+       uint8_t cnt = 0;
+       for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
+           if ((float) sample->data[i - j][k] < tri_data && (float) sample->data[i + j][k] > tri_data)
+               cnt++;
+           else
+               break;
+       }
+       if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] < tri_data) {
+           edges[Scope_Edge_Rise][edges_cnt[Scope_Edge_Rise]++] = i;
        }
    
-       return rst;
+       // 检查数据下降沿
+       cnt = 0;
+       for (uint8_t j = 1; j <= SCOPE_TRI_CHECK_NUM; j++) {
+           if ((float) sample->data[i - j][k] > tri_data && (float) sample->data[i + j][k] < tri_data)
+               cnt++;
+           else
+               break;
+       }
+       if (cnt == SCOPE_TRI_CHECK_NUM && (float) sample->data[i][k] > tri_data) {
+           edges[Scope_Edge_Fall][edges_cnt[Scope_Edge_Fall]++] = i;
+       }
    }
    ```
-
-   频谱仪数据处理：是用DSP库进行FFT。为了节省空间，采样数组和FFT数组共用同一个，但需要进行位对齐、转置。
-
-   核心代码如下：（位置：APP/Spectrum/sample.c）
-
+   
+   频谱仪数据处理：是用DSP库进行FFT。为了节省空间，采样数组和FFT数组共用同一个，但需要位对齐、转置。
+   
+   在不开辟额外数组的前提下，进行转置：（位置：APP/Spectrum/sample.c  Spectrum_Sample_Handle_Sub()）
+   
    ```c
-   // 处理采样数据：FFT
-   // 计算：最大峰频率、绘图数据
-   static void Spectrum_Sample_Handle_Sub(Spectrum_Sample *sample) {
-       uint16_t *p16 = (uint16_t *) sample->data;
-       uint64_t *p64 = (uint64_t *) sample->data;
-   
-       // uint16_t转uint64_t
-       for (int16_t i = SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM - 1;
-            i >= 0; i--) { // 倒序循环，不可以用unsigned，否则0-1=MAX，永远无法退出循环
-           float *tmp_p = (float *) &p64[i];
-           tmp_p[0] = toVoltage((float) p16[i]); // 实部放在前32位
-           tmp_p[1] = 1; // 虚部为0；这里标为1，是为下一步行列转换做准备
-       }
-   
-       // 行列转置
+   // 行列转置
    #define REAL(x) (*((float *) &p64[x]))
    #define IMAGE(x) (*((float *) &p64[x] + 1))
    #define NEXT(x) ((p % SPECTRUM_CHANNEL_NUM) * SPECTRUM_SAMPLE_NUM + (p / SPECTRUM_CHANNEL_NUM))
-       for (uint16_t i = 0; i < (uint16_t) (SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM); i++) {
-           if (IMAGE(i) == 0)
-               continue;
-           uint16_t first_p = i;
-           uint16_t p = i;
-           float val = REAL(i);
-           IMAGE(i) = 0;
-           while (1) {
-               p = NEXT(p);
-               if (p == first_p) {
-                   REAL(p) = val;
-                   break;
-               }
-               float tmp = REAL(p);
+   
+   for (uint16_t i = 0; i < (uint16_t) (SPECTRUM_SAMPLE_NUM * SPECTRUM_CHANNEL_NUM); i++) {
+       if (IMAGE(i) == 0) // 标记位为零，表示该数据已经被转置
+           continue;
+       uint16_t first_p = i;
+       uint16_t p = i;
+       float val = REAL(i);
+       IMAGE(i) = 0;
+       while (1) {
+           p = NEXT(p);
+           if (p == first_p) {
                REAL(p) = val;
-               val = tmp;
-               IMAGE(p) = 0;
+               break;
            }
-       }
-   #undef REAL
-   #undef IMAGE
-   #undef NEXT
-   
-       for (uint8_t k = 0; k < SPECTRUM_CHANNEL_NUM; k++) {
-           float *fft = sample->data[k];
-   
-           arm_cfft_f32(&arm_cfft_sR_f32_len, fft, 0, 1);
-           arm_cmplx_mag_f32(fft, fft, SPECTRUM_SAMPLE_NUM); // magnitude为模长；fft前一半为正模长，后一半为负模长
-   
-           // 计算最大峰
-           float FFT_max;
-           uint32_t FFT_max_index;
-           float freq = 0;
-           arm_max_f32(fft + 1, SPECTRUM_SAMPLE_NUM / 2 - 1, &FFT_max, &FFT_max_index); // 只考虑正模长
-           FFT_max_index++; // 过滤掉直流分量
-           if (FFT_max_index >= 2) {
-               float sum = fft[FFT_max_index - 2] +
-                           fft[FFT_max_index - 1] +
-                           fft[FFT_max_index] +
-                           fft[FFT_max_index + 1] +
-                           fft[FFT_max_index + 2];
-               freq = (((float) (FFT_max_index - 2) * fft[FFT_max_index - 2]) +
-                       ((float) (FFT_max_index - 1) * fft[FFT_max_index - 1]) +
-                       ((float) (FFT_max_index) * fft[FFT_max_index]) +
-                       ((float) (FFT_max_index + 2) * fft[FFT_max_index + 2]) +
-                       ((float) (FFT_max_index + 1) * fft[FFT_max_index + 1])) / sum;
-               freq *= (spectrum_KHz_max[spectrum_KHz_max_select] * (1000.0f / (SPECTRUM_SAMPLE_NUM / 2.0f))); // 比例算法
-           }
-           sample->freq[k] = freq; // 最大峰频率
-           sample->max[k] = fft[FFT_max_index] / (SPECTRUM_SAMPLE_NUM / 2.0f); // 最大峰电压
-   
-           // 计算直流分量
-           fft[0] /= 2; // 除直流分量外，其他分量被镜像了一份；所以从数值上看，应该把直流分量/2
-           sample->bias[k] = fft[0] / (SPECTRUM_SAMPLE_NUM / 2.0f);
+           // 交换 REAL(p) 和 val
+           float tmp = REAL(p);
+           REAL(p) = val;
+           val = tmp;
+           
+           IMAGE(p) = 0; // 标记位清零
        }
    }
    ```
-
    
+   使用DSP库进行FFT：（位置：APP/Spectrum/sample.c  Spectrum_Sample_Handle_Sub()）
+   
+   ```c
+   #include "arm_math.h" // arm_cfft_f32、arm_cmplx_mag_f32
+   #include "arm_const_structs.h" // arm_cfft_sR_f32_len128
+   
+   arm_cfft_f32(&arm_cfft_sR_f32_len128, fft, 0, 1);
+   arm_cmplx_mag_f32(fft, fft, SPECTRUM_SAMPLE_NUM);
+   ```
+
+
+
+## 5. 尚未实现的功能
+
+1. 目前输入信号的电压范围为 -3.3V~3.3V，可以通过改变反馈数组，增大电压范围；
+2. Auto功能，自动调整波形适应屏幕显示，大致实现方法如下：
+   - 通过FFT找到最大峰，计算合适的时间刻度、电压刻度
+   - 根据波形最大峰、次大峰，计算合适的触发电平
