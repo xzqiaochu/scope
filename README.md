@@ -19,9 +19,9 @@
 
 1. 环境配置
 
-   项目采用STM32CubeMX + CLion开发，请参考这篇文章配置环境：https://zhewana.cn/2021/c69c321f18aa/
+   项目采用STM32CubeMX + CLion开发，请参考这篇文章配置环境：https://zhewana.cn/?p=264
 
-   注：上述文章暂时失效，替代文章：https://www.bilibili.com/read/cv6308000 | https://zhuanlan.zhihu.com/p/160183640
+   也可参考：https://www.bilibili.com/read/cv6308000 | https://zhuanlan.zhihu.com/p/160183640
 
 2. 编译
 
